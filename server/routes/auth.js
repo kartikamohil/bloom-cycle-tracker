@@ -9,7 +9,11 @@ const router = express.Router();
 function randomCircleCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let out = '';
-  for (let i = 0; i < 6; i++) out += chars[crypto.randomInt(chars.length)];
+
+  for (let i = 0; i < 6; i++) {
+    out += chars[crypto.randomInt(chars.length)];
+  }
+
   return out;
 }
 
@@ -26,17 +30,37 @@ function publicUser(u) {
 }
 
 router.post('/register', async (req, res) => {
-  const { name, email, password, avgCycleLength, avgPeriodLength, lastPeriodStart } = req.body || {};
+  const {
+    name,
+    email,
+    password,
+    avgCycleLength,
+    avgPeriodLength,
+    lastPeriodStart
+  } = req.body || {};
+
   if (!name || !email || !password) {
-    return res.status(400).json({ error: 'name, email, and password are required.' });
+    return res.status(400).json({
+      error: 'name, email, and password are required.'
+    });
   }
+
   if (password.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    return res.status(400).json({
+      error: 'Password must be at least 8 characters.'
+    });
   }
-  if (db.findUserByEmail(email)) {
-    return res.status(409).json({ error: 'An account with that email already exists.' });
+
+  const existingUser = await db.findUserByEmail(email);
+
+  if (existingUser) {
+    return res.status(409).json({
+      error: 'An account with that email already exists.'
+    });
   }
+
   const passwordHash = await bcrypt.hash(password, 12);
+
   const user = {
     id: crypto.randomUUID(),
     name,
@@ -48,26 +72,65 @@ router.post('/register', async (req, res) => {
     circleCode: randomCircleCode(),
     createdAt: new Date().toISOString()
   };
-  db.createUser(user);
+
+  await db.createUser(user);
+
   const token = signToken(user.id);
-  res.status(201).json({ token, user: publicUser(user) });
+
+  res.status(201).json({
+    token,
+    user: publicUser(user)
+  });
 });
 
 router.post('/login', async (req, res) => {
   const { email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ error: 'email and password are required.' });
-  const user = db.findUserByEmail(email);
-  if (!user) return res.status(401).json({ error: 'Invalid email or password.' });
+
+  if (!email || !password) {
+    return res.status(400).json({
+      error: 'email and password are required.'
+    });
+  }
+
+  const user = await db.findUserByEmail(email);
+
+  if (!user) {
+    return res.status(401).json({
+      error: 'Invalid email or password.'
+    });
+  }
+
   const ok = await bcrypt.compare(password, user.passwordHash);
-  if (!ok) return res.status(401).json({ error: 'Invalid email or password.' });
+
+  if (!ok) {
+    return res.status(401).json({
+      error: 'Invalid email or password.'
+    });
+  }
+
   const token = signToken(user.id);
-  res.json({ token, user: publicUser(user) });
+
+  res.json({
+    token,
+    user: publicUser(user)
+  });
 });
 
-router.get('/me', requireAuth, (req, res) => {
-  const user = db.getUser(req.userId);
-  if (!user) return res.status(404).json({ error: 'User not found.' });
-  res.json({ user: publicUser(user) });
+router.get('/me', requireAuth, async (req, res) => {
+  const user = await db.getUser(req.userId);
+
+  if (!user) {
+    return res.status(404).json({
+      error: 'User not found.'
+    });
+  }
+
+  res.json({
+    user: publicUser(user)
+  });
 });
 
-module.exports = { router, publicUser };
+module.exports = {
+  router,
+  publicUser
+};
