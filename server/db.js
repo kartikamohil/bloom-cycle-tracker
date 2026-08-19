@@ -2,10 +2,22 @@ const pool = require('./postgres');
 
 // ---------------- USERS ----------------
 
+const USER_SELECT = `
+  SELECT
+    id,
+    name,
+    email,
+    password_hash AS "passwordHash",
+    avg_cycle_length AS "avgCycleLength",
+    avg_period_length AS "avgPeriodLength",
+    last_period_start AS "lastPeriodStart",
+    circle_code AS "circleCode",
+    companions
+  FROM users`;
+
 async function findUserByEmail(email) {
   const result = await pool.query(
-    `SELECT *
-     FROM users
+    `${USER_SELECT}
      WHERE LOWER(email) = LOWER($1)
      LIMIT 1`,
     [email]
@@ -16,8 +28,7 @@ async function findUserByEmail(email) {
 
 async function getUser(id) {
   const result = await pool.query(
-    `SELECT *
-     FROM users
+    `${USER_SELECT}
      WHERE id = $1`,
     [id]
   );
@@ -35,8 +46,8 @@ async function createUser(user) {
       `INSERT INTO users
        (id, name, email, password_hash,
         avg_cycle_length, avg_period_length,
-        circle_code, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        last_period_start, circle_code, companions, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         user.id,
         user.name,
@@ -44,7 +55,9 @@ async function createUser(user) {
         user.passwordHash,
         user.avgCycleLength || null,
         user.avgPeriodLength || null,
+        user.lastPeriodStart || null,
         user.circleCode,
+        user.companions || [],
         user.createdAt || new Date()
       ]
     );
@@ -74,7 +87,9 @@ async function updateUser(id, patch) {
     name: 'name',
     avgCycleLength: 'avg_cycle_length',
     avgPeriodLength: 'avg_period_length',
-    circleCode: 'circle_code'
+    lastPeriodStart: 'last_period_start',
+    circleCode: 'circle_code',
+    companions: 'companions'
   };
 
   const updates = [];
@@ -99,7 +114,12 @@ async function updateUser(id, patch) {
     `UPDATE users
      SET ${updates.join(', ')}
      WHERE id = $${index}
-     RETURNING *`,
+     RETURNING id, name, email, password_hash AS "passwordHash",
+               avg_cycle_length AS "avgCycleLength",
+               avg_period_length AS "avgPeriodLength",
+               last_period_start AS "lastPeriodStart",
+               circle_code AS "circleCode",
+               companions`,
     values
   );
 
@@ -234,7 +254,6 @@ async function getFollowedCodes(userId) {
 
   return result.rows.map(row => row.circle_code);
 }
-
 
 module.exports = {
   findUserByEmail,
