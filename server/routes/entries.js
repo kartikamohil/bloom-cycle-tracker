@@ -20,35 +20,65 @@ function decryptEntries(raw) {
 }
 
 // GET /api/entries -> all of this user's entries, decrypted
-router.get('/', requireAuth, (req, res) => {
-  const raw = db.getEntries(req.userId);
-  res.json({ entries: decryptEntries(raw) });
+router.get('/', requireAuth, async (req, res, next) => {
+  try {
+    const raw = await db.getEntries(req.userId);
+    res.json({ entries: decryptEntries(raw) });
+  } catch (error) {
+    next(error);
+  }
 });
 
 // PUT /api/entries/:date -> upsert one day's log
-router.put('/:date', requireAuth, (req, res) => {
-  const { date } = req.params;
-  if (!DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD.' });
-  const { flow, symptoms, note } = req.body || {};
-  if (flow !== null && flow !== undefined && !['light', 'medium', 'heavy'].includes(flow)) {
-    return res.status(400).json({ error: 'flow must be light, medium, heavy, or null.' });
+router.put('/:date', requireAuth, async (req, res, next) => {
+  try {
+    const { date } = req.params;
+    if (!DATE_RE.test(date)) {
+      return res.status(400).json({ error: 'date must be YYYY-MM-DD.' });
+    }
+
+    const { flow, symptoms, note } = req.body || {};
+
+    if (flow !== null && flow !== undefined && !['light', 'medium', 'heavy'].includes(flow)) {
+      return res.status(400).json({ error: 'flow must be light, medium, heavy, or null.' });
+    }
+
+    const entry = {
+      flow: flow || null,
+      symptoms: Array.isArray(symptoms) ? symptoms.slice(0, 30) : [],
+      noteEnc: note ? encrypt(note) : null
+    };
+
+    await db.upsertEntry(req.userId, date, entry);
+
+    res.json({
+      entry: {
+        flow: entry.flow,
+        symptoms: entry.symptoms,
+        note: note || ''
+      }
+    });
+  } catch (error) {
+    next(error);
   }
-  const entry = {
-    flow: flow || null,
-    symptoms: Array.isArray(symptoms) ? symptoms.slice(0, 30) : [],
-    noteEnc: note ? encrypt(note) : null
-  };
-  db.upsertEntry(req.userId, date, entry);
-  res.json({ entry: { flow: entry.flow, symptoms: entry.symptoms, note: note || '' } });
 });
 
 // GET /api/entries/predictions -> derived cycle stats
-router.get('/meta/predictions', requireAuth, (req, res) => {
-  const user = db.getUser(req.userId);
-  const raw = db.getEntries(req.userId);
-  const entries = decryptEntries(raw);
-  const stats = computeStats(entries, user);
-  res.json({ stats });
+router.get('/meta/predictions', requireAuth, async (req, res, next) => {
+  try {
+    const user = await db.getUser(req.userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    const raw = await db.getEntries(req.userId);
+    const entries = decryptEntries(raw);
+    const stats = computeStats(entries, user);
+
+    res.json({ stats });
+  } catch (error) {
+    next(error);
+  }
 });
 
 module.exports = router;
