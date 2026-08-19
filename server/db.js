@@ -57,7 +57,7 @@ async function createUser(user) {
         user.avgPeriodLength || null,
         user.lastPeriodStart || null,
         user.circleCode,
-        user.companions || [],
+        JSON.stringify(user.companions || []),
         user.createdAt || new Date()
       ]
     );
@@ -99,7 +99,7 @@ async function updateUser(id, patch) {
   for (const [key, value] of Object.entries(patch)) {
     if (allowedFields[key]) {
       updates.push(`${allowedFields[key]} = $${index}`);
-      values.push(value);
+      values.push(key === 'companions' ? JSON.stringify(value || []) : value);
       index++;
     }
   }
@@ -125,7 +125,6 @@ async function updateUser(id, patch) {
 
   return result.rows[0] || null;
 }
-
 
 // ---------------- CYCLE ENTRIES ----------------
 
@@ -190,7 +189,6 @@ async function upsertEntry(userId, dateStr, entry) {
   };
 }
 
-
 // ---------------- CIRCLES ----------------
 
 async function ownerOfCircleCode(code) {
@@ -216,16 +214,17 @@ async function followCircle(userId, code) {
     );
 
     if (circleResult.rows.length === 0) {
-      return [];
+      return { found: false, added: false, followedCodes: [] };
     }
 
     const circleId = circleResult.rows[0].id;
 
-    await client.query(
+    const insertResult = await client.query(
       `INSERT INTO circle_followers
        (user_id, circle_id)
        VALUES ($1, $2)
-       ON CONFLICT (user_id, circle_id) DO NOTHING`,
+       ON CONFLICT (user_id, circle_id) DO NOTHING
+       RETURNING id`,
       [userId, circleId]
     );
 
@@ -233,11 +232,16 @@ async function followCircle(userId, code) {
       `SELECT c.circle_code
        FROM circle_followers cf
        JOIN circles c ON c.id = cf.circle_id
-       WHERE cf.user_id = $1`,
+       WHERE cf.user_id = $1
+       ORDER BY c.circle_code`,
       [userId]
     );
 
-    return result.rows.map(row => row.circle_code);
+    return {
+      found: true,
+      added: insertResult.rowCount > 0,
+      followedCodes: result.rows.map(row => row.circle_code)
+    };
   } finally {
     client.release();
   }
@@ -248,7 +252,8 @@ async function getFollowedCodes(userId) {
     `SELECT c.circle_code
      FROM circle_followers cf
      JOIN circles c ON c.id = cf.circle_id
-     WHERE cf.user_id = $1`,
+     WHERE cf.user_id = $1
+     ORDER BY c.circle_code`,
     [userId]
   );
 
